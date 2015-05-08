@@ -23,6 +23,7 @@ The purpose of this software is to scan for certain malicious activity that occu
 3. Debugging Counter-Countermeasures
 4. Code Tracing
 5. Screen Capture
+6. Pattern Scanner
 
 ##Limitations
 The biggest limitation currently is the absence of a driver as it is a real pain to develop a x64 bit driver and get it signed, I will probably develop a driver under test mode. Unless I decide to release the driver bundled with a signed vulnerable Third-Party driver allowing me to bypass KMCS. As for bypassing KPP (PatchGuard) it is relatively straightforward to disable these checks with a KMD and hook the SSDT, but a large investment of time is required. So all in all soon. 
