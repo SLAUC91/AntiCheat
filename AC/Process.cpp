@@ -18,6 +18,7 @@ Process::~Process(){
 
 }
 
+
 #pragma optimize("", off)
 //Get the Process Information
 Process::Process_INFO Process::GetProcessInfo(std::string & PN){
@@ -212,7 +213,6 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 	PSYSTEM_HANDLE_INFORMATION handleInfo;
 	ULONG handleInfoSize = 0x10000;
 	HANDLE processHandle;
-
 	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQuerySystemInformation");
 	_NtDuplicateObject NtDuplicateObject = (_NtDuplicateObject)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtDuplicateObject");
 	_NtQueryObject NtQueryObject = (_NtQueryObject)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQueryObject");
@@ -226,13 +226,12 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 
 	handleInfo = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
 
-	/* NtQuerySystemInformation won't give us the correct buffer size,
-	so we guess by doubling the buffer size. */
-	while ((status = fpQSI(SystemHandleInformation, handleInfo, handleInfoSize, NULL)) == STATUS_INFO_LENGTH_MISMATCH){
+	// NtQuerySystemInformation won't give us the correct buffer size, so we guess by doubling the buffer size.
+	while ((status = fpQSI((SYSTEM_INFORMATION_CLASS)SystemHandleInformation, handleInfo, handleInfoSize, NULL)) == STATUS_INFO_LENGTH_MISMATCH){
 		handleInfo = (PSYSTEM_HANDLE_INFORMATION)realloc(handleInfo, handleInfoSize *= 2);
 	}
 
-	/* NtQuerySystemInformation stopped giving us STATUS_INFO_LENGTH_MISMATCH. */
+	// NtQuerySystemInformation stopped giving us STATUS_INFO_LENGTH_MISMATCH.
 	if (!NT_SUCCESS(status))
 	{
 		//printf("NtQuerySystemInformation failed!\n");
@@ -249,20 +248,20 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 		UNICODE_STRING objectName;
 		ULONG returnLength = 0;
 
-		/* Check if this handle belongs to the PID the user specified. */
+		// Check if this handle belongs to the PID the user specified. 
 		
 		if (handle.ProcessId != PID)
 			continue;
 		
 
-		/* Duplicate the handle so we can query it. */
+		// Duplicate the handle so we can query it.
 		if (!NT_SUCCESS(NtDuplicateObject(processHandle, (HANDLE)handle.Handle,	GetCurrentProcess(), &dupHandle, 0, 0, 0)))
 		{
 			//std::cout << "[0x" << std::hex << handle.Handle << "] Error! \n";
 			continue;
 		}
 
-		/* Query the object type. */
+		// Query the object type. 
 		objectTypeInfo = (POBJECT_TYPE_INFORMATION)malloc(0x1000);
 		if (!NT_SUCCESS(NtQueryObject(dupHandle, ObjectTypeInformation, objectTypeInfo,	0x1000,	NULL)))
 		{
@@ -341,7 +340,7 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 		// Cast our buffer into an UNICODE_STRING
 		objectName = *(PUNICODE_STRING)objectNameInfo;
 
-		/* Print the information! */
+		// Print the information!
 		if (objectName.Length)
 		{
 			// The object has a name. 
@@ -429,9 +428,9 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 						}
 					}
 
-					/*for (unsigned int i = 0; i < TokenArray.size(); i++){
-						std::cout << TokenArray[i] << std::endl;
-						}*/
+					//for (unsigned int i = 0; i < TokenArray.size(); i++){
+					//	std::cout << TokenArray[i] << std::endl;
+					//	}
 
 					HIF.ObjectName = TokenArray[TokenArray.size() - 1];
 					//std::cout << TokenArray[TokenArray.size() - 1] << std::endl;;
@@ -466,6 +465,5 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 	CloseHandle(processHandle);
 
 	return HandleVec;
-
 }
 #pragma optimize("", on)

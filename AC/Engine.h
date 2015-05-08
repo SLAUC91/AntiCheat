@@ -34,7 +34,7 @@ private:
 	std::vector<Process::Module_INFO> Send_MOD_List;
 
 	std::vector<USN> USN_LIST;	//List of Flagged USN
-	std::vector<_DNS_CACHE_ENTRY> USN_LIST;	//List of Flagged DNS
+	std::vector<_DNS_CACHE_ENTRY> DNS_LIST;	//List of Flagged DNS
 
 	//Send Method change this to whatever your serial/deserialization method is
 	template <class T>

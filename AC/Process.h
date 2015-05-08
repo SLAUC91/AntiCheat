@@ -16,12 +16,16 @@
 #define ObjectNameInformation 1
 #define ObjectTypeInformation 2
 
-typedef NTSTATUS(WINAPI *_ntQSI)(
-	ULONG SystemInformationClass,
-	PVOID SystemInformation,
-	ULONG SystemInformationLength,
-	PULONG ReturnLength
-	);
+
+
+typedef NTSTATUS (NTAPI *_ntQSI)(
+	IN SYSTEM_INFORMATION_CLASS SystemInformationClass,
+	IN OUT PVOID SystemInformation,
+	IN ULONG SystemInformationLength,
+	OUT PULONG ReturnLength OPTIONAL
+);
+
+
 
 typedef struct _CLIENT_ID {
 	HANDLE UniqueProcess;
