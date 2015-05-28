@@ -317,7 +317,7 @@ void Engine::Check_Handles(Process * Proc){
 	//Send a list of process handle originating from your process
 	//Proc->ListHandles(Proc->Pinfo.Process_ID);
 
-	std::cout << Proc->System_PID_List.size() << std::endl;
+	//std::cout << Proc->System_PID_List.size() << std::endl;
 	
 	//Check the handles for every process on the system
 	for (unsigned int i = 0; i < Proc->System_PID_List.size(); i++){
