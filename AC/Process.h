@@ -187,7 +187,7 @@ namespace All_SYS{
 	} PEB_LDR_DATA, *PPEB_LDR_DATA;
 
 
-	typedef struct _MY_PEB{
+	typedef struct _PEB{
 		BYTE Reserved1[2];
 		BYTE BeingDebugged;
 		BYTE Reserved2[9];
@@ -195,7 +195,7 @@ namespace All_SYS{
 		PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
 		BYTE Reserved3[448];
 		ULONG SessionId;
-	}MY_PEB, *MY_PPEB;
+	}PEB, *PPEB;
 
 	/** A structure that holds information about a single module loaded by a process **/
 	/** LIST_ENTRY is a link list pointing to the prev/next Module loaded **/

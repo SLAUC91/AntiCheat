@@ -160,7 +160,7 @@ std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListTy
 		All_SYS::PPEB_LDR_DATA pLdrData = nullptr;
 		PBYTE address = nullptr;
 
-		PBYTE LdrDataOffset = (PBYTE)(PBI.PebBaseAddress) + offsetof(struct All_SYS::_MY_PEB, LoaderData);
+		PBYTE LdrDataOffset = (PBYTE)(PBI.PebBaseAddress) + offsetof(struct All_SYS::_PEB, LoaderData);
 		ReadProcessMemory(ProcessHandle, LdrDataOffset, &pLdrData, sizeof(All_SYS::PPEB_LDR_DATA), NULL);
 		ReadProcessMemory(ProcessHandle, pLdrData, &LdrData, sizeof(All_SYS::PEB_LDR_DATA), NULL);
 
