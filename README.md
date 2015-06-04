@@ -7,16 +7,17 @@ The purpose of this software is to scan for certain malicious activity that occu
 ##Features
 1. USN Scanning 
 2. DNS Scanning
-3. Modules Scanning 
+3. Modules Scanning (InLoadOrderModuleList, InMemoryOrderModuleList, InInitializationOrderModuleList)
 4. Handle Scanning (All events, Files, Process Handles)
 5. Thread Scannning*
-6. PE & PEB Parsing
-7. User-Mode Hook Detection (IAT)
-8. MSR Hook Detection
-9. IDT Hook Detection
-10. SSDT Hook Detection
-11. IRP Handlers Hook Detection
-12. x32 Driver*
+6. Driver & System Module Scannning
+7. PE & PEB Parsing
+8. User-Mode Hook Detection (IAT)
+9. MSR Hook Detection
+10. IDT Hook Detection
+11. SSDT Hook Detection
+12. IRP Handlers Hook Detection
+13. x32 Driver*
  
 ##In Development
 1. x64 Driver
@@ -26,6 +27,7 @@ The purpose of this software is to scan for certain malicious activity that occu
 5. Screen Capture
 6. Pattern Scanner
 7. General Driver and Engine Integration*
+8. Module Scanning (Check for dlls mapped directly in memory)
  
 *Note: Not fully Integrated
 
