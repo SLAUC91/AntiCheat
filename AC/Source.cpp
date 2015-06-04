@@ -4,7 +4,7 @@
 #include "pTest.h"
 
 int main(){
-	std::cout << "Executing: " << std::endl;
+	std::cout << "Anti Cheat is active for: " << std::endl;
 	
 	//Engine Eng("Test.exe");	//Change it to your desired process' name
 
@@ -14,7 +14,7 @@ int main(){
 	//Run Timed checks
 	//Eng.Main();
 
-	//Sample
+	//Sample Test
 
 	pTest Test;
 	Test.Tmain();

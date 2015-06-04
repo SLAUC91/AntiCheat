@@ -512,18 +512,9 @@ void Engine::GetPeInfo(std::string FilePath){
 void Engine::DLL_Cks(Process * ProcessObj){
 	//Check if DLL is flagged then check for suspicious import or export functions
 	for (unsigned int i = 0; i < ProcessObj->Modules.size(); i++){
-		if (ProcessObj->Modules[i].Dll_Flagged){
-			//if FullDllName is null flag it
-			if (ProcessObj->Modules[i].FullDllName.size() == NULL){
-				//Flag it - This should never occur unless the DLL
-				//is loaded from memory instead of the disk
-			}
-			else {
-				std::string NameOf = ws2s(ProcessObj->Modules[i].FullDllName);
-				GetPeInfo(NameOf);
-				//Check ProcessFunctionInfo
-			}
-		}
+			std::string NameOf = ws2s(ProcessObj->Modules[i].FullDllName);
+			GetPeInfo(NameOf);
+			//Check ProcessFunctionInfo
 	}
 
 	//Check the send list for suspicious import or export functions

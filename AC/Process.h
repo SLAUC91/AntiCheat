@@ -7,8 +7,6 @@ Need to add padding to structs for x64 compilation
 
 #include <string>
 #include <vector>
-#include <iostream>
-#include <limits.h>
 #include <Windows.h>
 #include <winternl.h>
 
@@ -16,6 +14,9 @@ Need to add padding to structs for x64 compilation
 #define ObjectBasicInformation 0
 #define ObjectNameInformation 1
 #define ObjectTypeInformation 2
+
+#define Max_DLLs 256
+#define MAX_FILENAME 512
 
 namespace All_SYS{
 	typedef enum _SYSTEM_INFORMATION_CLASS
@@ -174,25 +175,115 @@ namespace All_SYS{
 
 	//redefine the struct in windows interal header to include undocumented values
 	typedef struct _PEB_LDR_DATA {
-		ULONG                   Length;
-		BOOLEAN                 Initialized;
+		DWORD                   Length;
+		UCHAR					Initialized;
 		PVOID                   SsHandle;
 		LIST_ENTRY              InLoadOrderModuleList;
 		LIST_ENTRY              InMemoryOrderModuleList;
 		LIST_ENTRY              InInitializationOrderModuleList;
+		PVOID					EntryInProgress;
+		UCHAR					ShutdownInProgress;
+		PVOID					ShutdownThreadId;
 	} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+
+	typedef struct _MY_PEB{
+		BYTE Reserved1[2];
+		BYTE BeingDebugged;
+		BYTE Reserved2[9];
+		PPEB_LDR_DATA LoaderData;
+		PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+		BYTE Reserved3[448];
+		ULONG SessionId;
+	}MY_PEB, *MY_PPEB;
+
+	/** A structure that holds information about a single module loaded by a process **/
+	/** LIST_ENTRY is a link list pointing to the prev/next Module loaded **/
+	typedef struct _LDR_DATA_TABLE_ENTRY
+	{
+		LIST_ENTRY            InLoadOrderModuleList;
+		LIST_ENTRY            InMemoryOrderModuleList;
+		LIST_ENTRY            InInitializationOrderModuleList;
+		PVOID                 BaseAddress;
+		PVOID                 EntryPoint;
+		ULONG                 SizeOfImage;
+		UNICODE_STRING        FullDllName;
+		UNICODE_STRING        BaseDllName;
+		ULONG                 Flags;
+		WORD				  LoadCount;
+		WORD                  TlsIndex;
+		LIST_ENTRY            HashTableEntry;
+		union
+		{
+			LIST_ENTRY HashLinks;
+			struct
+			{
+				PVOID SectionPointer;
+				ULONG CheckSum;
+			};
+		};
+		union
+		{
+			ULONG TimeDateStamp;
+			PVOID LoadedImports;
+		};
+		_ACTIVATION_CONTEXT *	EntryPointActivationContext;
+		PVOID					PatchInformation;
+		LIST_ENTRY				ForwarderLinks;
+		LIST_ENTRY				ServiceTagLinks;
+		LIST_ENTRY				StaticLinks;
+		PVOID					ContextInformation;
+		DWORD64					OriginalBase;
+		LARGE_INTEGER			LoadTime;
+	} LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
+
+	typedef struct _MODULEINFO {
+		LPVOID lpBaseOfDll;
+		DWORD  SizeOfImage;
+		LPVOID EntryPoint;
+	} MODULEINFO, *LPMODULEINFO;
+
+	typedef struct _Module_DATA{
+		char	fileName[MAX_FILENAME];
+		MODULEINFO dllInfo;
+	}MODULE_DATA, *PMODULE_DATA;
+
+	typedef struct _MODULE_LIST{
+		HANDLE	handle;
+		HMODULE handleDLL[Max_DLLs];
+		DWORD nDLLs;
+		PMODULE_DATA moduleArray;
+	}MODULE_LIST, *PMODULE_LIST;
 }
 
-typedef NTSTATUS (NTAPI *_ntQSI)(
+typedef NTSTATUS(NTAPI *_ntQSI)(
 	IN SYSTEM_INFORMATION_CLASS SystemInformationClass,
 	IN OUT PVOID SystemInformation,
 	IN ULONG SystemInformationLength,
 	OUT PULONG ReturnLength OPTIONAL
 );
 
+typedef struct _SYSTEM_MODULE {
+	HANDLE Section;
+	PVOID MappedBase;
+	PVOID ImageBase;
+	ULONG ImageSize;
+	ULONG Flags;
+	USHORT LoadOrderIndex;
+	USHORT InitOrderIndex;
+	USHORT LoadCount;
+	USHORT OffsetToFileName;
+	UCHAR FullPathName[256];
+} SYSTEM_MODULE, *PSYSTEM_MODULE;
+
+typedef struct _SYSTEM_MODULE_INFORMATION {
+	ULONG                ModulesCount;
+	SYSTEM_MODULE        Modules[1];
+} SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
+
 typedef struct _CLIENT_ID {
-	DWORD  UniqueProcess;
-	DWORD  UniqueThread;
+	HANDLE  UniqueProcess;
+	HANDLE  UniqueThread;
 } CLIENT_ID;
 
 typedef struct _VM_COUNTERS {
@@ -257,7 +348,7 @@ typedef struct _SYSTEM_THREAD_INFORMATION
 	LARGE_INTEGER UserTime;
 	LARGE_INTEGER CreateTime;
 	ULONG WaitTime;
-	DWORD StartAddress;
+	PVOID StartAddress;
 	CLIENT_ID ClientId;
 	LONG Priority;
 	LONG BasePriority;
@@ -309,25 +400,6 @@ typedef NTSTATUS(NTAPI * _ZwReadVirtualMemory)
 	IN ULONG NumberOfBytesToRead,
 	OUT PULONG NumberOfBytesReaded
 );
-
-/** A structure that holds information about a single module loaded by a process **/
-/** LIST_ENTRY is a link list pointing to the prev/next Module loaded **/
-typedef struct _LDR_MODULE
-{
-	LIST_ENTRY            InLoadOrderModuleList;
-	LIST_ENTRY            InMemoryOrderModuleList;
-	LIST_ENTRY            InInitializationOrderModuleList;
-	PVOID                 BaseAddress;
-	PVOID                 EntryPoint;
-	ULONG                 SizeOfImage;
-	UNICODE_STRING        FullDllName;
-	UNICODE_STRING        BaseDllName;
-	ULONG                 Flags;
-	SHORT                 LoadCount;
-	SHORT                 TlsIndex;
-	LIST_ENTRY            HashTableEntry;
-	ULONG                 TimeDateStamp;
-} LDR_MODULE, *PLDR_MODULE;
 
 typedef NTSTATUS (NTAPI * pNtQueryInformationProcess)
 (
@@ -416,6 +488,9 @@ typedef struct _OBJECT_TYPE_INFORMATION
 class Process{
 private:
 	void FindModuleFromAddr(DWORD dwPID, std::wstring & wModule, DWORD dwThreadAddr, DWORD * pModStrAddr, int FullPathName);
+	void BuildModuleArray(All_SYS::PMODULE_LIST pModList);
+	void BuildModuleList(All_SYS::PMODULE_LIST pModList);
+	All_SYS::PLDR_DATA_TABLE_ENTRY Process::GetNextNode(PCHAR nNode, int Offset);
 
 public:
 
@@ -431,11 +506,10 @@ public:
 		ULONG ThreadCount = 0;
 	}Pinfo;
 
-	struct Module_INFO : LDR_MODULE
+	struct Module_INFO : All_SYS::LDR_DATA_TABLE_ENTRY
 	{
 		std::wstring			FullDllName;
 		std::wstring			BaseDllName;
-		bool					Dll_Flagged;
 	};
 
 	struct Handle_INFO{
@@ -448,17 +522,24 @@ public:
 
 	struct Thread_INFO{
 		//Thread Info Struct
-		SYSTEM_THREAD_INFORMATION ThreadInfo;
-		DWORD Win32Address;
+		SYSTEM_EXTENDED_THREAD_INFORMATION ExtThreadInfo;
 		std::string FullModPathToAddr;
 		std::string BaseModPathToAddr;
 	};
 
+	struct System_Module_INFO{
+		ULONG ModulesCount;
+		std::vector<SYSTEM_MODULE> Modules;
+	};
+
 	Process_INFO GetProcessInfo(std::string & PN);
 
-	std::vector < Module_INFO > ListModules(DWORD PID);
+	std::vector < Module_INFO > ListModulesA(DWORD PID, int ListType);
+	void ListModulesB(DWORD PID);
+
 	std::vector < Handle_INFO > ListHandles(DWORD PID);
 	std::vector < Thread_INFO > ListThreads(DWORD PID);
+	std::vector < System_Module_INFO > ListSystemModules();
 
 	std::vector < Module_INFO > Modules;
 	std::vector < Handle_INFO > Handles;

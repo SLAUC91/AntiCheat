@@ -1,14 +1,13 @@
 #include "Process.h"
 #include <sstream>
-
-//HANDLE hPROC = NULL;
-//DWORD PID_DW = 0;
+#include <iostream>
+#include <Psapi.h>
 
 Process::Process(std::string Proc) {
 	Pinfo = GetProcessInfo(Proc);
 	Sleep(1000);
 
-	Modules = ListModules(Pinfo.Process_ID);
+	Modules = ListModulesA(Pinfo.Process_ID, 1);
 	Pinfo.ModuleCount = Modules.size();
 
 	Handles = ListHandles(Pinfo.Process_ID);
@@ -41,13 +40,13 @@ Process::Process_INFO Process::GetProcessInfo(std::string & PN){
 	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQuerySystemInformation");
 
 
-	buffer = VirtualAlloc(NULL, 1048576, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	buffer = VirtualAlloc(NULL, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
 	if (buffer == NULL){
 		return Pinfo;
 	}
 
-	Status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemExtendedProcessInformation, buffer, buffer_size, &buffer_size);
+	Status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemExtendedProcessInformation, buffer, buffer_size, NULL);
 
 	//if buffer is too small double size
 	if (Status == STATUS_INFO_LENGTH_MISMATCH) {
@@ -132,40 +131,61 @@ Process::Process_INFO Process::GetProcessInfo(std::string & PN){
 	return Pinfo;
 }
 
-//List Modules using LDR_MODULE
-std::vector < Process::Module_INFO > Process::ListModules(DWORD PID){
+All_SYS::PLDR_DATA_TABLE_ENTRY Process::GetNextNode(PCHAR nNode, int Offset){
+	nNode -= sizeof(LIST_ENTRY)*Offset;
+	return (All_SYS::PLDR_DATA_TABLE_ENTRY)nNode;
+}
+
+//List Modules using PBI
+//ListType = 0 - InLoadOrderModuleList
+//ListType = 1 - InMemoryOrderModuleList
+//ListType = 2 - InInitializationOrderModuleList
+std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListType){
 	Process::Module_INFO MD;
 	std::vector < Module_INFO > ListOfMods;
 
-	SIZE_T dwBytesRead = 0;
+	if (ListType > 2 || ListType < 0){
+		return ListOfMods;
+	}
+
 	PROCESS_BASIC_INFORMATION PBI = { 0 };
 	HANDLE ProcessHandle = OpenProcess(PROCESS_ALL_ACCESS, false, PID);
 
 	pNtQueryInformationProcess NtQIP = (pNtQueryInformationProcess) GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQueryInformationProcess");
 
-	if (NT_SUCCESS(NtQIP(ProcessHandle, ProcessBasicInformation, &PBI, sizeof(PBI), reinterpret_cast<DWORD*>(&dwBytesRead))))
+	if (NT_SUCCESS(NtQIP(ProcessHandle, ProcessBasicInformation, &PBI, sizeof(PROCESS_BASIC_INFORMATION), NULL)))
 	{
 		All_SYS::PEB_LDR_DATA LdrData;
-		LDR_MODULE LdrModule;
+		All_SYS::LDR_DATA_TABLE_ENTRY LdrModule;
 		All_SYS::PPEB_LDR_DATA pLdrData = nullptr;
+		PBYTE address = nullptr;
 
-		char* LdrDataOffset = (PCHAR)(PBI.PebBaseAddress) + offsetof(PEB, Ldr);
-		ReadProcessMemory(ProcessHandle, LdrDataOffset, &pLdrData, sizeof(All_SYS::PPEB_LDR_DATA), &dwBytesRead);
-		ReadProcessMemory(ProcessHandle, pLdrData, &LdrData, sizeof(All_SYS::PEB_LDR_DATA), &dwBytesRead);
+		PBYTE LdrDataOffset = (PBYTE)(PBI.PebBaseAddress) + offsetof(struct All_SYS::_MY_PEB, LoaderData);
+		ReadProcessMemory(ProcessHandle, LdrDataOffset, &pLdrData, sizeof(All_SYS::PPEB_LDR_DATA), NULL);
+		ReadProcessMemory(ProcessHandle, pLdrData, &LdrData, sizeof(All_SYS::PEB_LDR_DATA), NULL);
 
-		//std::cout <<LdrData.Length << "\n";
-		LIST_ENTRY* Head = LdrData.InMemoryOrderModuleList.Flink;
-		LIST_ENTRY* Node = Head;
+		if (ListType == 0)
+			address = (PBYTE)LdrData.InLoadOrderModuleList.Flink;
+		else if (ListType == 1)
+			address = (PBYTE)LdrData.InMemoryOrderModuleList.Flink;
+		else if (ListType == 2)
+			address = (PBYTE)LdrData.InInitializationOrderModuleList.Flink;
 
-		do //LDR_MODULE struct
+		address -= sizeof(LIST_ENTRY)*ListType;
+
+		All_SYS::PLDR_DATA_TABLE_ENTRY Head = (All_SYS::PLDR_DATA_TABLE_ENTRY)address;
+		All_SYS::PLDR_DATA_TABLE_ENTRY Node = Head;
+
+		do
 		{
-			if (ReadProcessMemory(ProcessHandle, (PCHAR)Node-sizeof(LIST_ENTRY), &LdrModule, sizeof(LDR_MODULE), &dwBytesRead))
+			BOOL status = ReadProcessMemory(ProcessHandle, Node, &LdrModule, sizeof(All_SYS::LDR_DATA_TABLE_ENTRY), NULL);
+			if (status)
 			{
 
 				std::wstring BaseDllName(LdrModule.BaseDllName.Length / sizeof(WCHAR), 0);
 				std::wstring FullDllName(LdrModule.FullDllName.Length / sizeof(WCHAR), 0);
-				ReadProcessMemory(ProcessHandle, LdrModule.BaseDllName.Buffer, &BaseDllName[0], LdrModule.BaseDllName.Length, &dwBytesRead);
-				ReadProcessMemory(ProcessHandle, LdrModule.FullDllName.Buffer, &FullDllName[0], LdrModule.FullDllName.Length, &dwBytesRead);
+				ReadProcessMemory(ProcessHandle, LdrModule.BaseDllName.Buffer, &BaseDllName[0], LdrModule.BaseDllName.Length, NULL);
+				ReadProcessMemory(ProcessHandle, LdrModule.FullDllName.Buffer, &FullDllName[0], LdrModule.FullDllName.Length, NULL);
 
 				MD.BaseAddress = LdrModule.BaseAddress;
 				MD.EntryPoint = LdrModule.EntryPoint;
@@ -177,29 +197,98 @@ std::vector < Process::Module_INFO > Process::ListModules(DWORD PID){
 				MD.FullDllName = FullDllName;
 				MD.BaseDllName = BaseDllName;
 
-				if (LdrModule.BaseAddress) 
+				if (LdrModule.BaseAddress != 0) 
 				{
-					MD.Dll_Flagged = FALSE;
 					ListOfMods.push_back(MD);
 				}
 
-				else if (LdrModule.BaseAddress == 0){
-					//Flag the module - this should not occur unless the call table is changed
-					MD.Dll_Flagged = TRUE;
-					ListOfMods.push_back(MD);
+				else{
+					break;
 				}
 			}
-			Node = LdrModule.InMemoryOrderModuleList.Flink;
+
+			if (ListType == 0)
+				Node = GetNextNode((PCHAR)LdrModule.InLoadOrderModuleList.Flink, ListType);
+			else if (ListType == 1)
+				Node = GetNextNode((PCHAR)LdrModule.InMemoryOrderModuleList.Flink, ListType);
+			else if (ListType == 2)
+				Node = GetNextNode((PCHAR)LdrModule.InInitializationOrderModuleList.Flink, ListType);
+
 		} while (Head != Node);
 	}
 
 	CloseHandle(ProcessHandle);
-
-	//Last value should be zero it is removed
-	if (ListOfMods.size() > 0)
-		ListOfMods.erase(ListOfMods.end() - 1);
-
 	return ListOfMods;
+}
+
+void Process::BuildModuleArray(All_SYS::PMODULE_LIST pModList){
+	DWORD i;
+	BOOL retVal;
+
+	for (i = 0; i < pModList->nDLLs; i++){
+		DWORD dwBytes;
+		All_SYS::MODULEINFO moduleInformation;
+
+		dwBytes = GetModuleFileNameEx(pModList->handle,	pModList->handleDLL[i], pModList->moduleArray[i].fileName, MAX_FILENAME);
+
+		if (dwBytes == 0){
+			(pModList->moduleArray[i]).fileName[0] = '\0';
+		}
+
+		retVal = GetModuleInformation(pModList->handle, pModList->handleDLL[i], (LPMODULEINFO)&moduleInformation, sizeof(All_SYS::MODULEINFO));
+
+		if (retVal == 0){
+			pModList->moduleArray[i].dllInfo.lpBaseOfDll = 0;
+			pModList->moduleArray[i].dllInfo.SizeOfImage = 0;
+			pModList->moduleArray[i].dllInfo.EntryPoint = 0;
+		}
+		pModList->moduleArray[i].dllInfo = moduleInformation;
+	}
+	return;
+}
+
+void Process::BuildModuleList(All_SYS::PMODULE_LIST pModList){
+	BOOL retVal;
+	DWORD dwBytes;
+
+	retVal = EnumProcessModulesEx(pModList->handle, pModList->handleDLL, (DWORD)Max_DLLs*sizeof(HMODULE), &dwBytes, 0x03);
+
+	if (retVal == 0){
+		pModList->nDLLs = 0;
+		return;
+	}
+
+	pModList->nDLLs = dwBytes / sizeof(HMODULE);
+
+	if (pModList->nDLLs > Max_DLLs){
+		pModList->nDLLs = 0;
+		return;
+	}
+
+	pModList->moduleArray = (All_SYS::PMODULE_DATA)malloc(sizeof(All_SYS::MODULE_DATA) * pModList->nDLLs);
+
+	BuildModuleArray(pModList);
+	return;
+}
+
+//ListModules using Psapi
+void Process::ListModulesB(DWORD PID){
+	All_SYS::MODULE_LIST ModList;
+
+	HANDLE pHANDLE = OpenProcess(PROCESS_ALL_ACCESS, false, PID);
+	ModList.handle = pHANDLE;
+
+	BuildModuleList(&ModList);
+
+	std::cout << ModList.nDLLs << std::endl;
+	All_SYS::PMODULE_DATA Data = ModList.moduleArray;
+
+	for (int i = 0; i < ModList.nDLLs; i++){
+		std::cout << (&Data[i]) -> fileName << " -- Base:" << (&Data[i]) -> dllInfo.lpBaseOfDll << "--" << std::endl;
+	}
+
+	CloseHandle(pHANDLE);
+	free(ModList.moduleArray);
 }
 
 //List the Handles of a process 
@@ -217,14 +306,13 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 
 	if (!(processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID)))
 	{
-		//printf("Could not open PID %d! (Don't try to open a system process.)\n", PID);
 		std::cout << "Can't open " << PID << std::endl;
 		return HandleVec;
 	}
 
 	handleInfo = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
 
-	// NtQuerySystemInformation won't give us the correct buffer size, so we guess by doubling the buffer size.
+	// NtQuerySystemInformation won't give us the correct buffer size
 	while ((status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemHandleInformation, handleInfo, handleInfoSize, NULL)) == STATUS_INFO_LENGTH_MISMATCH){
 		handleInfo = (PSYSTEM_HANDLE_INFORMATION)realloc(handleInfo, handleInfoSize *= 2);
 	}
@@ -467,7 +555,7 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 
 void Process::FindModuleFromAddr(DWORD dwPID, std::wstring & wModule, DWORD dwThreadAddr, DWORD * pModStrAddr, int FullPathName)
 {
-	std::vector < Process::Module_INFO > ProcModules = ListModules(dwPID);
+	std::vector < Process::Module_INFO > ProcModules = ListModulesA(dwPID, 1);
 	unsigned int i = 0;
 	for (i = 0; i < ProcModules.size(); i++){
 		if (dwThreadAddr >= (DWORD)ProcModules[i].BaseAddress && dwThreadAddr <= ((DWORD)ProcModules[i].BaseAddress + ProcModules[i].SizeOfImage)){
@@ -498,11 +586,12 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 	NTSTATUS Status = STATUS_INFO_LENGTH_MISMATCH;
 	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQuerySystemInformation");
 
-	buffer = VirtualAlloc(NULL, 1048576, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	buffer = VirtualAlloc(NULL, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	if (buffer == NULL){
 		return ThreadVec;
 	}
-	Status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemExtendedProcessInformation, buffer, buffer_size, &buffer_size);
+
+	Status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemExtendedProcessInformation, buffer, buffer_size, NULL);
 
 	//if buffer is too small double size
 	if (Status == STATUS_INFO_LENGTH_MISMATCH) {
@@ -533,9 +622,8 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 					//std::cout << std::dec << (DWORD)sExtThreadInfo.ThreadInfo.ClientId.UniqueThread << std::endl;
 
 					//Win32StartAddress;
-					//std::cout << (DWORD)sExtThreadInfo.Win32StartAddress << std::endl;
+					//std::cout << (DWORD)sExtThreadInfo.StartAddress << std::endl;
 					dwThreadAddr = (DWORD)sExtThreadInfo.Win32StartAddress;
-					sThreadInfo.Win32Address = dwThreadAddr;
 
 					//Match the Win32Addr to Module
 					FindModuleFromAddr(PID, wModName, dwThreadAddr, &dwModBaseAddr, TRUE);
@@ -551,7 +639,7 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 					stringbuffer << sModName << " + " << "0x" << std::hex << (dwThreadAddr - dwModBaseAddr) << std::dec << std::endl;
 					sThreadInfo.BaseModPathToAddr = stringbuffer.str();
 
-					sThreadInfo.ThreadInfo = sExtThreadInfo.ThreadInfo;
+					sThreadInfo.ExtThreadInfo = sExtThreadInfo;
 					ThreadVec.push_back(sThreadInfo);
 				}
 			}
@@ -565,5 +653,54 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 		if (buffer) VirtualFree(buffer, NULL, MEM_RELEASE);
 	}
 	return ThreadVec;
+}
+
+//List System Modules and Drivers
+std::vector < Process::System_Module_INFO > Process::ListSystemModules(){
+	NTSTATUS status;
+	PSYSTEM_MODULE_INFORMATION ptrModuleInfo;
+	std::vector < System_Module_INFO > sysModVec;
+	System_Module_INFO sysMD;
+	ULONG buffer_size = 512 * 512;
+	PVOID buffer;
+
+	status = STATUS_INFO_LENGTH_MISMATCH;
+	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQuerySystemInformation");
+
+	buffer = VirtualAlloc(NULL, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+
+	if (buffer == NULL){
+		return sysModVec;
+	}
+
+	status = fpQSI((SYSTEM_INFORMATION_CLASS)All_SYS::SystemModuleInformation, buffer, buffer_size, NULL);
+
+	//if buffer is too small double size
+	if (status == STATUS_INFO_LENGTH_MISMATCH) {
+		VirtualFree(buffer, NULL, MEM_RELEASE);
+		buffer_size *= 2;
+	}
+
+	else if (!NT_SUCCESS(status)) {
+		VirtualFree(buffer, NULL, MEM_RELEASE);
+		return sysModVec;
+	}
+
+	else{
+		//Pointer to System Module Information
+		ptrModuleInfo = (PSYSTEM_MODULE_INFORMATION)buffer;
+
+		sysMD.ModulesCount = ptrModuleInfo->ModulesCount;
+
+		for (int i = 0; i < ptrModuleInfo->ModulesCount; i++){
+			SYSTEM_MODULE sysModule = ptrModuleInfo->Modules[i];
+			sysMD.Modules.push_back(sysModule);
+		}
+
+		sysModVec.push_back(sysMD);
+
+		if (buffer) VirtualFree(buffer, NULL, MEM_RELEASE);
+	}
+	return sysModVec;
 }
 #pragma optimize("", on)
