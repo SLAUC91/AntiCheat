@@ -5,13 +5,15 @@
 
 Process::Process(std::string Proc) {
 	Pinfo = GetProcessInfo(Proc);
-	Sleep(1000);
 
-	Modules = ListModulesA(Pinfo.Process_ID, 1);
+	Modules = ListModulesA(Pinfo.Process_ID, 1, 0);
 	Pinfo.ModuleCount = Modules.size();
 
 	Handles = ListHandles(Pinfo.Process_ID);
 	Pinfo.HandleCount = Handles.size();
+
+	Threads = ListThreads(Pinfo.Process_ID);
+	Pinfo.ThreadCount = Threads.size();
 }
 
 Process::~Process(){
@@ -140,20 +142,24 @@ All_SYS::PLDR_DATA_TABLE_ENTRY Process::GetNextNode(PCHAR nNode, int Offset){
 //ListType = 0 - InLoadOrderModuleList
 //ListType = 1 - InMemoryOrderModuleList
 //ListType = 2 - InInitializationOrderModuleList
-std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListType){
-	Process::Module_INFO MD;
+std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListType, int Order){
+	Module_INFO MD;
 	std::vector < Module_INFO > ListOfMods;
+	pNtQueryInformationProcess NtQIP;
+	NTSTATUS status;
+	std::wstring BaseDllName;
+	std::wstring FullDllName;
 
-	if (ListType > 2 || ListType < 0){
+	if (ListType > 2 || ListType < 0 || Order > 1 || Order < 0){
 		return ListOfMods;
 	}
 
-	PROCESS_BASIC_INFORMATION PBI = { 0 };
+	PROCESS_BASIC_INFORMATION PBI = { 0 }; 
 	HANDLE ProcessHandle = OpenProcess(PROCESS_ALL_ACCESS, false, PID);
+	NtQIP = (pNtQueryInformationProcess)GetProcAddress(GetModuleHandle(TEXT("ntdll.dll")), "NtQueryInformationProcess");
+	status = NT_SUCCESS(NtQIP(ProcessHandle, ProcessBasicInformation, &PBI, sizeof(PROCESS_BASIC_INFORMATION), NULL));
 
-	pNtQueryInformationProcess NtQIP = (pNtQueryInformationProcess) GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQueryInformationProcess");
-
-	if (NT_SUCCESS(NtQIP(ProcessHandle, ProcessBasicInformation, &PBI, sizeof(PROCESS_BASIC_INFORMATION), NULL)))
+	if (status)
 	{
 		All_SYS::PEB_LDR_DATA LdrData;
 		All_SYS::LDR_DATA_TABLE_ENTRY LdrModule;
@@ -164,28 +170,45 @@ std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListTy
 		ReadProcessMemory(ProcessHandle, LdrDataOffset, &pLdrData, sizeof(All_SYS::PPEB_LDR_DATA), NULL);
 		ReadProcessMemory(ProcessHandle, pLdrData, &LdrData, sizeof(All_SYS::PEB_LDR_DATA), NULL);
 
-		if (ListType == 0)
-			address = (PBYTE)LdrData.InLoadOrderModuleList.Flink;
-		else if (ListType == 1)
-			address = (PBYTE)LdrData.InMemoryOrderModuleList.Flink;
-		else if (ListType == 2)
-			address = (PBYTE)LdrData.InInitializationOrderModuleList.Flink;
+		if (Order == 0){
+			if (ListType == 0)
+				address = (PBYTE)LdrData.InLoadOrderModuleList.Flink;
+			else if (ListType == 1)
+				address = (PBYTE)LdrData.InMemoryOrderModuleList.Flink;
+			else if (ListType == 2)
+				address = (PBYTE)LdrData.InInitializationOrderModuleList.Flink;
+		}
+		else{
+			if (ListType == 0)
+				address = (PBYTE)LdrData.InLoadOrderModuleList.Blink;
+			else if (ListType == 1)
+				address = (PBYTE)LdrData.InMemoryOrderModuleList.Blink;
+			else if (ListType == 2)
+				address = (PBYTE)LdrData.InInitializationOrderModuleList.Blink;
+		}
 
+#ifdef _WIN64
+		address -= sizeof(LIST_ENTRY64)*ListType;
+#else
 		address -= sizeof(LIST_ENTRY)*ListType;
+#endif
 
 		All_SYS::PLDR_DATA_TABLE_ENTRY Head = (All_SYS::PLDR_DATA_TABLE_ENTRY)address;
 		All_SYS::PLDR_DATA_TABLE_ENTRY Node = Head;
 
 		do
 		{
-			BOOL status = ReadProcessMemory(ProcessHandle, Node, &LdrModule, sizeof(All_SYS::LDR_DATA_TABLE_ENTRY), NULL);
-			if (status)
+			BOOL status1 = ReadProcessMemory(ProcessHandle, Node, &LdrModule, sizeof(All_SYS::LDR_DATA_TABLE_ENTRY), NULL);
+			if (status1)
 			{
 
-				std::wstring BaseDllName(LdrModule.BaseDllName.Length / sizeof(WCHAR), 0);
-				std::wstring FullDllName(LdrModule.FullDllName.Length / sizeof(WCHAR), 0);
+				BaseDllName = std::wstring(LdrModule.BaseDllName.Length / sizeof(WCHAR), 0);
+				FullDllName = std::wstring(LdrModule.FullDllName.Length / sizeof(WCHAR), 0);
 				ReadProcessMemory(ProcessHandle, LdrModule.BaseDllName.Buffer, &BaseDllName[0], LdrModule.BaseDllName.Length, NULL);
 				ReadProcessMemory(ProcessHandle, LdrModule.FullDllName.Buffer, &FullDllName[0], LdrModule.FullDllName.Length, NULL);
+
+				BaseDllName.push_back('\0');
+				FullDllName.push_back('\0');
 
 				MD.BaseAddress = LdrModule.BaseAddress;
 				MD.EntryPoint = LdrModule.EntryPoint;
@@ -207,12 +230,22 @@ std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListTy
 				}
 			}
 
-			if (ListType == 0)
-				Node = GetNextNode((PCHAR)LdrModule.InLoadOrderModuleList.Flink, ListType);
-			else if (ListType == 1)
-				Node = GetNextNode((PCHAR)LdrModule.InMemoryOrderModuleList.Flink, ListType);
-			else if (ListType == 2)
-				Node = GetNextNode((PCHAR)LdrModule.InInitializationOrderModuleList.Flink, ListType);
+			if (Order == 0){
+				if (ListType == 0)
+					Node = GetNextNode((PCHAR)LdrModule.InLoadOrderModuleList.Flink, ListType);
+				else if (ListType == 1)
+					Node = GetNextNode((PCHAR)LdrModule.InMemoryOrderModuleList.Flink, ListType);
+				else if (ListType == 2)
+					Node = GetNextNode((PCHAR)LdrModule.InInitializationOrderModuleList.Flink, ListType);
+			}
+			else{
+				if (ListType == 0)
+					Node = GetNextNode((PCHAR)LdrModule.InLoadOrderModuleList.Blink, ListType);
+				else if (ListType == 1)
+					Node = GetNextNode((PCHAR)LdrModule.InMemoryOrderModuleList.Blink, ListType);
+				else if (ListType == 2)
+					Node = GetNextNode((PCHAR)LdrModule.InInitializationOrderModuleList.Blink, ListType);
+			}
 
 		} while (Head != Node);
 	}
@@ -553,9 +586,20 @@ std::vector < Process::Handle_INFO > Process::ListHandles(DWORD PID){
 	return HandleVec;
 }
 
+BOOL Process::ThreadInAddrModList(SYSTEM_EXTENDED_THREAD_INFORMATION & ThreadINFO){
+	DWORD dwThreadAddr = (DWORD)ThreadINFO.Win32StartAddress;
+	unsigned int i = 0;
+	for (i = 0; i < Modules.size(); i++){
+		if (dwThreadAddr >= (DWORD)Modules[i].BaseAddress && dwThreadAddr <= ((DWORD)Modules[i].BaseAddress + (DWORD) Modules[i].SizeOfImage)){
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 void Process::FindModuleFromAddr(DWORD dwPID, std::wstring & wModule, DWORD dwThreadAddr, DWORD * pModStrAddr, int FullPathName)
 {
-	std::vector < Process::Module_INFO > ProcModules = ListModulesA(dwPID, 1);
+	std::vector < Process::Module_INFO > & ProcModules = Modules;
 	unsigned int i = 0;
 	for (i = 0; i < ProcModules.size(); i++){
 		if (dwThreadAddr >= (DWORD)ProcModules[i].BaseAddress && dwThreadAddr <= ((DWORD)ProcModules[i].BaseAddress + ProcModules[i].SizeOfImage)){
@@ -570,8 +614,9 @@ void Process::FindModuleFromAddr(DWORD dwPID, std::wstring & wModule, DWORD dwTh
 	}
 	if (pModStrAddr && i != (unsigned int) ProcModules.size())
 		*pModStrAddr = (DWORD)ProcModules[i].BaseAddress;
-	else
+	else{
 		*pModStrAddr = 0;
+	}
 }
 
 std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
@@ -584,7 +629,7 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 	ULONG buffer_size = 512 * 512;
 
 	NTSTATUS Status = STATUS_INFO_LENGTH_MISMATCH;
-	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(("ntdll.dll")), "NtQuerySystemInformation");
+	_ntQSI fpQSI = (_ntQSI)GetProcAddress(GetModuleHandle(TEXT("ntdll.dll")), "NtQuerySystemInformation");
 
 	buffer = VirtualAlloc(NULL, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	if (buffer == NULL){

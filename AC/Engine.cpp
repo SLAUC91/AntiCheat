@@ -310,6 +310,7 @@ DNSCACHEENTRY * Engine::GetDNS(std::wstring & s_filename){
 	return nullptr;
 }
 
+//Check for any open handles to our process
 void Engine::Check_Handles(Process * Proc){
 
 	std::vector < Process::Handle_INFO > Temp_Data;
@@ -331,8 +332,27 @@ void Engine::Check_Handles(Process * Proc){
 				PID_H.push_back(Temp_Data[j].PID);
 			}
 		}
-
 		Temp_Data.clear();
+	}
+}
+
+//Check for thread injection in our process particularly threads created with CreateRemoteThread()
+//TODO: hook LoadLibrary
+void Engine::Check_Threads(Process * Proc){
+	//Vector to the Injected threads
+	std::vector<Process::Thread_INFO> vecInjectedThread;
+	DWORD dwThreadPID = 0;
+
+	for (unsigned i = 0; i < Proc->Threads.size(); i++){
+		dwThreadPID = (DWORD) (Proc->Threads[i]).ExtThreadInfo.ThreadInfo.ClientId.UniqueProcess;
+		//check if Threads PID does not match our process pid 
+		if (dwThreadPID != Proc->Pinfo.Process_ID){
+			vecInjectedThread.push_back(Proc->Threads[i]);
+		}
+		//check if the Thread is in the Process address space
+		else if (Proc->ThreadInAddrModList(Proc->Threads[i].ExtThreadInfo)){
+			vecInjectedThread.push_back(Proc->Threads[i]);
+		}
 	}
 
 }
@@ -580,13 +600,18 @@ void Engine::Main(){
 		Process * RT_ActionRunner = new Process(ProcN);
 
 		//MODULE checks
+		//If fails flag it
 		CompareModules(PreLoaderINFO->Modules, RT_ActionRunner->Modules);
 
 		//Change module list varient
+		//Check for strange function imports or exports
 		DLL_Cks(RT_ActionRunner);
 
 		//Handle Checks 
 		Check_Handles(RT_ActionRunner);
+
+		//Check Threads
+		Check_Threads(RT_ActionRunner);
 
 		delete RT_ActionRunner;
 		

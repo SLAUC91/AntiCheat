@@ -92,8 +92,10 @@ public:
 
 	USN_RECORD * GetUSN(std::wstring & CheckFor);
 	DNSCACHEENTRY * GetDNS(std::wstring & s_filename);
+
 	void Check_Handles(Process * Proc);
-	
+	void Check_Threads(Process * Proc);
+
 	//Fill the Import and Export Vectors
 	void GetPeInfo(std::string FilePath);
 

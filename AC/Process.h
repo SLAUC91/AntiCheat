@@ -173,23 +173,66 @@ namespace All_SYS{
 		MaxSystemInfoClass = 0x0095
 	} SYSTEM_INFORMATION_CLASS;
 
+#ifdef _WIN64
 	//redefine the struct in windows interal header to include undocumented values
 	typedef struct _PEB_LDR_DATA {
-		DWORD                   Length;
+		ULONG			Length;
+		UCHAR			Initialized;
+		ULONG64			SsHandle;
+		LIST_ENTRY64	InLoadOrderModuleList;
+		LIST_ENTRY64	InMemoryOrderModuleList;
+		LIST_ENTRY64	InInitializationOrderModuleList;
+		PVOID64			EntryInProgress;
+		UCHAR			ShutdownInProgress;
+		PVOID64			ShutdownThreadId;
+	} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+	typedef struct _PEB{
+		UCHAR				InheritedAddressSpace;
+		UCHAR				ReadImageFileExecOptions;
+		UCHAR				BeingDebugged;
+		BYTE				Reserved0;
+		ULONG				Reserved1;
+		ULONG64				Reserved3;
+		ULONG64				ImageBaseAddress;
+		ULONG64				LoaderData;
+		ULONG64				ProcessParameters;
+	}PEB, *PPEB;
+
+	/** A structure that holds information about a single module loaded by a process **/
+	/** LIST_ENTRY is a link list pointing to the prev/next Module loaded **/
+	typedef struct _LDR_DATA_TABLE_ENTRY
+	{
+		LIST_ENTRY64		InLoadOrderModuleList;
+		LIST_ENTRY64		InMemoryOrderModuleList;
+		LIST_ENTRY64		InInitializationOrderModuleList;
+		ULONG64				BaseAddress;
+		ULONG64				EntryPoint;
+		ULONG				SizeOfImage;	//bytes
+		UNICODE_STRING		FullDllName;
+		UNICODE_STRING		BaseDllName;
+		ULONG				Flags;
+		USHORT				LoadCount;
+	} LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
+
+#else
+	//redefine the struct in windows interal header to include undocumented values
+	typedef struct _PEB_LDR_DATA {
+		DWORD					Length;
 		UCHAR					Initialized;
-		PVOID                   SsHandle;
+		PVOID	                SsHandle;
 		LIST_ENTRY              InLoadOrderModuleList;
-		LIST_ENTRY              InMemoryOrderModuleList;
+		LIST_ENTRY				InMemoryOrderModuleList;
 		LIST_ENTRY              InInitializationOrderModuleList;
 		PVOID					EntryInProgress;
 		UCHAR					ShutdownInProgress;
 		PVOID					ShutdownThreadId;
 	} PEB_LDR_DATA, *PPEB_LDR_DATA;
 
-
 	typedef struct _PEB{
-		BYTE Reserved1[2];
-		BYTE BeingDebugged;
+		UCHAR InheritedAddressSpace;
+		UCHAR ReadImageFileExecOptions;
+		UCHAR BeingDebugged;
 		BYTE Reserved2[9];
 		PPEB_LDR_DATA LoaderData;
 		PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
@@ -210,8 +253,8 @@ namespace All_SYS{
 		UNICODE_STRING        FullDllName;
 		UNICODE_STRING        BaseDllName;
 		ULONG                 Flags;
-		WORD				  LoadCount;
-		WORD                  TlsIndex;
+		USHORT				  LoadCount;
+		USHORT                 TlsIndex;
 		LIST_ENTRY            HashTableEntry;
 		union
 		{
@@ -233,9 +276,10 @@ namespace All_SYS{
 		LIST_ENTRY				ServiceTagLinks;
 		LIST_ENTRY				StaticLinks;
 		PVOID					ContextInformation;
-		DWORD64					OriginalBase;
+		DWORD					OriginalBase;
 		LARGE_INTEGER			LoadTime;
 	} LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
+#endif
 
 	typedef struct _MODULEINFO {
 		LPVOID lpBaseOfDll;
@@ -523,8 +567,8 @@ public:
 	struct Thread_INFO{
 		//Thread Info Struct
 		SYSTEM_EXTENDED_THREAD_INFORMATION ExtThreadInfo;
-		std::string FullModPathToAddr;
-		std::string BaseModPathToAddr;
+		std::string FullModPathToAddr = "";
+		std::string BaseModPathToAddr = "";
 	};
 
 	struct System_Module_INFO{
@@ -534,7 +578,7 @@ public:
 
 	Process_INFO GetProcessInfo(std::string & PN);
 
-	std::vector < Module_INFO > ListModulesA(DWORD PID, int ListType);
+	std::vector < Module_INFO > ListModulesA(DWORD PID, int ListType, int Order);
 	void ListModulesB(DWORD PID);
 
 	std::vector < Handle_INFO > ListHandles(DWORD PID);
@@ -543,6 +587,9 @@ public:
 
 	std::vector < Module_INFO > Modules;
 	std::vector < Handle_INFO > Handles;
+	std::vector < Thread_INFO > Threads;
+
+	BOOL ThreadInAddrModList(SYSTEM_EXTENDED_THREAD_INFORMATION & ThreadINFO);
 
 	std::vector < DWORD > System_PID_List;
 };
