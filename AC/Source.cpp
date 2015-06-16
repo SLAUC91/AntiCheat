@@ -4,9 +4,9 @@
 #include "pTest.h"
 
 int main(){
-	std::cout << "Anti Cheat is active for: " << std::endl;
+	std::cout << "Scanner is active for: " << std::endl;
 	
-	//Engine Eng("Test.exe");	//Change it to your desired process' name
+	//Engine Eng("test.exe");	//Change it to your desired process' name
 
 	//Run Global checks
 	//Eng.Global_Cks();

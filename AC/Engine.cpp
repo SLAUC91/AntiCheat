@@ -1,4 +1,6 @@
 #include "Engine.h"
+#include "pScanner.h"
+#include <unordered_map>
 
 // Directory Entries
 #define IMAGE_DIRECTORY_ENTRY_EXPORT     0 // Export Directory
@@ -12,8 +14,8 @@
 #define BUFFER_SIZE (1024 * 1024)
 HANDLE drive = nullptr;
 USN maxusn;
-
-Engine::PeInfo ProcessFunctionInfo;
+std::unordered_map<PVOID, int> AddrHashCount;
+//Engine::PeInfo ProcessFunctionInfo;
 
 Engine::Engine(std::string Proc){
 	PreLoaderINFO = new Process(Proc);
@@ -71,18 +73,18 @@ int Engine::GetPrcessorInfo(){
 	}
 }
 
-void Engine::CompareModules(std::vector<Process::Module_INFO> &A, std::vector<Process::Module_INFO> &B){
+void Engine::CompareModules(Process * A, Process * B){
 	//Unknown Module List
 	std::vector<Process::Module_INFO> CU_List;
 
 	bool Found = FALSE;
 	//Compare Module Base Name and Image Size
-	for (unsigned int i = 0; i < B.size(); i++){
+	for (unsigned int i = 0; i < B->Modules.size(); i++){
 		
-		for (unsigned int j = 0; j < A.size(); j++){
+		for (unsigned int j = 0; j < A->Modules.size(); j++){
 		
 			//Check if name match with the same image size
-			if ( ((B[i].BaseDllName).compare(A[j].BaseDllName) == 0) && (B[i].SizeOfImage == A[j].SizeOfImage) ){
+			if ( ((B->Modules[i].BaseDllName).compare(A->Modules[j].BaseDllName) == 0) && (B->Modules[i].SizeOfImage == A->Modules[j].SizeOfImage) ){
 				Found = TRUE;
 				break;
 			}
@@ -91,7 +93,7 @@ void Engine::CompareModules(std::vector<Process::Module_INFO> &A, std::vector<Pr
 
 		//If not found in A
 		if (Found == FALSE){
-			CU_List.push_back(B[i]);
+			CU_List.push_back(B->Modules[i]);
 		}
 		else{
 			Found = FALSE;
@@ -122,6 +124,97 @@ void Engine::CompareModules(std::vector<Process::Module_INFO> &A, std::vector<Pr
 		}
 
 	}
+}
+
+//Compares the modules in the PEB to the modules paged into memory 
+void Engine::CompareModulesPEBtoVQ(Process * Proc){
+	bool dllFound = false;
+	PVOID baseaddr = 0;
+
+	for (int i = 0; i < Proc->Pages.size(); i++){
+		dllFound = false;
+		//if the page is not a Mem_Image skip
+		if (!(Proc->Pages[i].isDLLpage)){
+			continue;
+		}
+
+		//Check if we already checked the address 
+		if ((PVOID)Proc->Pages[i].memInfo.AllocationBase == baseaddr){
+			continue;
+		}
+
+		//Page is Mem_Image
+		for (int j = 0; j < Proc->Modules.size(); j++){
+			//Check if the Base addr is in PEB struct == allocation base addr
+			PVOID BaseAlloc = (PVOID)Proc->Pages[i].memInfo.AllocationBase;
+			PVOID ModBaseAddr = Proc->Modules[j].BaseAddress;
+			if (BaseAlloc == ModBaseAddr){
+				dllFound = true;
+				baseaddr = BaseAlloc;
+				break;
+			}
+
+		}
+
+		//AllocationBase Zero
+		if (Proc->Pages[i].memInfo.AllocationBase == 0){ 
+			continue; 
+		}
+
+		//DLL not found in PEB
+		if (!dllFound){
+			baseaddr = (PVOID)Proc->Pages[i].memInfo.AllocationBase;
+			PVOID PageBase = (PVOID) Proc->Pages[i].memInfo.BaseAddress;
+			if (baseaddr != PageBase){
+				//If you hit here then that means that the DLL
+				//was in the page list and not PEB
+				std::wcout << baseaddr << " " << PageBase << " " << Proc->Pages[i].nativeFullNameMem << std::endl;
+			}
+		}
+
+	}
+}
+
+//Check if the virtual pages were spilt
+void Engine::CheckSegmentCount(Process * Proc, BOOL initalized){
+	DWORD count = 1;
+	for (int i = 0; i < Proc->Pages.size() - 1; i++){
+
+		if ((PVOID)Proc->Pages[i].memInfo.AllocationBase == (PVOID)Proc->Pages[i + 1].memInfo.AllocationBase){
+			count++;
+		}
+
+		//skip if the allocation base is zero
+		else if ((PVOID)Proc->Pages[i].memInfo.AllocationBase == 0){
+			continue;
+		}
+
+		else{
+			if (initalized){
+				int countInHash = AddrHashCount.at((PVOID)Proc->Pages[i].memInfo.AllocationBase);
+
+				if (countInHash == count){
+					continue;
+				}
+				else{
+					std::cout << "-----Page Split-----" << std::endl;
+					std::wcout << "Alloc Addr: " << (PVOID)Proc->Pages[i - 1].memInfo.AllocationBase << " " << Proc->Pages[i - 1].nativeFullNameMem << std::endl;
+					std::pair<PVOID, int> element((PVOID)Proc->Pages[i].memInfo.AllocationBase, count);
+					AddrHashCount.insert(element);
+					count = 1;
+				}
+			}
+			else{
+				std::pair<PVOID, int> element((PVOID)Proc->Pages[i].memInfo.AllocationBase, count);
+				AddrHashCount.insert(element);
+				count = 1;
+			}
+		}
+	}
+}
+
+void ScanPages(){
+
 }
 
 void Engine::show_record(USN_RECORD * record)
@@ -587,6 +680,10 @@ void Engine::Global_Cks(){
 
 	CloseHandle(Query);
 	delete[] NameP;
+
+	//Create hash
+	CheckSegmentCount(RT_ActionRunner, FALSE);
+
 	delete RT_ActionRunner;
 
 	return;
@@ -601,7 +698,7 @@ void Engine::Main(){
 
 		//MODULE checks
 		//If fails flag it
-		CompareModules(PreLoaderINFO->Modules, RT_ActionRunner->Modules);
+		CompareModules(PreLoaderINFO, RT_ActionRunner);
 
 		//Change module list varient
 		//Check for strange function imports or exports
@@ -612,6 +709,10 @@ void Engine::Main(){
 
 		//Check Threads
 		Check_Threads(RT_ActionRunner);
+
+		CompareModulesPEBtoVQ(RT_ActionRunner);
+		
+		CheckSegmentCount(RT_ActionRunner, TRUE);
 
 		delete RT_ActionRunner;
 		

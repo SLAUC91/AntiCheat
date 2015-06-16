@@ -6,16 +6,7 @@
 #include <string>
 #include <vector>
 #include "Process.h"
-
-typedef struct _DNS_CACHE_ENTRY {
-	struct _DNS_CACHE_ENTRY* pNext; 
-	PWSTR pszName; 
-	unsigned short wType; 
-	unsigned short wDataLength; 
-	unsigned long dwFlags; 
-} DNSCACHEENTRY, *PDNSCACHEENTRY;
-
-typedef int(WINAPI *DNS_GET_CACHE_DATA_TABLE)(PDNSCACHEENTRY);
+#include "ntrdf.h"
 
 class Engine{
 private:
@@ -51,6 +42,22 @@ private:
 	//do your work inline
 	std::vector < DWORD > PID_H;
 
+	void CompareModulesPEBtoVQ(Process * Proc);
+	void CompareModules(Process * A, Process * B);
+
+	USN_RECORD * GetUSN(std::wstring & CheckFor);
+	DNSCACHEENTRY * GetDNS(std::wstring & s_filename);
+
+	void Check_Handles(Process * Proc);
+	void Check_Threads(Process * Proc);
+
+	//Fill the Import and Export Vectors
+	void GetPeInfo(std::string FilePath);
+
+	void DLL_Cks(Process * ProcessObj);
+
+	void CheckSegmentCount(Process * Proc, BOOL initalized);
+
 public:
 	float stat_counter = 0.0f;
 
@@ -85,21 +92,7 @@ public:
 	struct PeInfo{
 		PEFunctions * Func = nullptr;
 		std::string Name = " ";
-	};
-
-
-	void CompareModules(std::vector<Process::Module_INFO> &A, std::vector<Process::Module_INFO> &B);
-
-	USN_RECORD * GetUSN(std::wstring & CheckFor);
-	DNSCACHEENTRY * GetDNS(std::wstring & s_filename);
-
-	void Check_Handles(Process * Proc);
-	void Check_Threads(Process * Proc);
-
-	//Fill the Import and Export Vectors
-	void GetPeInfo(std::string FilePath);
-
-	void DLL_Cks(Process * ProcessObj);
+	}ProcessFunctionInfo;
 
 	//Main function of Engine
 	void Global_Cks();

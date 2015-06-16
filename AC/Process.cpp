@@ -14,6 +14,8 @@ Process::Process(std::string Proc) {
 
 	Threads = ListThreads(Pinfo.Process_ID);
 	Pinfo.ThreadCount = Threads.size();
+
+	Pages = ReadProcessPageInfo(Pinfo.Process_ID);
 }
 
 Process::~Process(){
@@ -134,7 +136,11 @@ Process::Process_INFO Process::GetProcessInfo(std::string & PN){
 }
 
 All_SYS::PLDR_DATA_TABLE_ENTRY Process::GetNextNode(PCHAR nNode, int Offset){
-	nNode -= sizeof(LIST_ENTRY)*Offset;
+#ifdef _WIN64
+	nNode -= sizeof(LIST_ENTRY64) * Offset;
+#else
+	nNode -= sizeof(LIST_ENTRY) * Offset;
+#endif
 	return (All_SYS::PLDR_DATA_TABLE_ENTRY)nNode;
 }
 
@@ -252,6 +258,52 @@ std::vector < Process::Module_INFO > Process::ListModulesA(DWORD PID, int ListTy
 
 	CloseHandle(ProcessHandle);
 	return ListOfMods;
+}
+
+std::vector < Process::Page_INFO > Process::ReadProcessPageInfo(DWORD dwPID){
+	Page_INFO pageData;
+	std::vector < Page_INFO > ListofPages;
+	pNtQueryVirtualMemory ntQVM;
+	All_SYS::MEMORY_BASIC_INFORMATION mbi;
+
+	ULONG sizeMSNBuffer = 512;
+	PMEMORY_SECTION_NAME msnName = (PMEMORY_SECTION_NAME)VirtualAlloc(NULL, sizeMSNBuffer, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+
+	HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwPID);
+
+	ntQVM = (pNtQueryVirtualMemory)GetProcAddress(GetModuleHandle(TEXT("ntdll.dll")), "NtQueryVirtualMemory");
+
+	SYSTEM_INFO sysINFO;
+	GetSystemInfo(&sysINFO);
+	PBYTE pCurAddr = (PBYTE)sysINFO.lpMinimumApplicationAddress;
+	PBYTE pMaxAddr = (PBYTE)sysINFO.lpMaximumApplicationAddress;
+
+	while (pCurAddr < pMaxAddr){
+		//Get the MEMORY_BASIC_INFORMATION
+		if (NT_SUCCESS(ntQVM(hProc, pCurAddr, MemoryBasicInformation, &mbi, sizeof(All_SYS::MEMORY_BASIC_INFORMATION), NULL))){
+			
+			pageData.memInfo = mbi;
+
+			if (mbi.Type == MEM_IMAGE){				
+				pageData.isDLLpage = true;
+
+				//Get the Memory Section Name
+				if (NT_SUCCESS(ntQVM(hProc, pCurAddr, MemorySectionName, msnName, sizeMSNBuffer, NULL))){
+					//printf("%S\n\n", msnName->SectionFileName.Buffer);
+					pageData.nativeFullNameMem.swap(std::wstring(msnName->SectionFileName.Buffer, msnName->SectionFileName.Length));
+					memset(msnName, 0, sizeMSNBuffer);
+				}
+			}
+		}
+
+		ListofPages.push_back(pageData);
+		//Get the Next page
+		pCurAddr += mbi.RegionSize;
+	}
+
+	if (msnName) VirtualFree(msnName, NULL, MEM_RELEASE);
+	CloseHandle(hProc);
+	return ListofPages;
 }
 
 void Process::BuildModuleArray(All_SYS::PMODULE_LIST pModList){
@@ -672,7 +724,7 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 
 					//Match the Win32Addr to Module
 					FindModuleFromAddr(PID, wModName, dwThreadAddr, &dwModBaseAddr, TRUE);
-					sModName = std::string(wModName.begin(), wModName.end());
+					sModName.swap(std::string(wModName.begin(), wModName.end()));
 					stringbuffer << sModName << " + " << "0x" << std::hex << (dwThreadAddr - dwModBaseAddr) << std::dec << std::endl;
 					sThreadInfo.FullModPathToAddr = stringbuffer.str();
 
@@ -680,7 +732,7 @@ std::vector < Process::Thread_INFO > Process::ListThreads(DWORD PID){
 					stringbuffer.str(std::string());
 
 					FindModuleFromAddr(PID, wModName, dwThreadAddr, &dwModBaseAddr, FALSE);
-					sModName = std::string(wModName.begin(), wModName.end());
+					sModName.swap(std::string(wModName.begin(), wModName.end()));
 					stringbuffer << sModName << " + " << "0x" << std::hex << (dwThreadAddr - dwModBaseAddr) << std::dec << std::endl;
 					sThreadInfo.BaseModPathToAddr = stringbuffer.str();
 

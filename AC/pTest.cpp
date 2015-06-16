@@ -13,7 +13,7 @@ void pTest::printModulesA(Process * A){
 	std::vector < Process::Module_INFO > B = A->ListModulesA(A->Pinfo.Process_ID, 0, 0);
 	for (unsigned int i = 0; i < (unsigned int)B.size(); i++){
 		std::wcout << B[i].BaseDllName << " \t\t";
-		std::cout << "Base Addr: " << std::hex << (DWORD) B[i].BaseAddress << " Entry: " << (DWORD) B[i].EntryPoint << std::endl;
+		std::cout << "Base Addr: " << (PVOID) B[i].BaseAddress << " Entry: " << (DWORD) B[i].EntryPoint << std::endl;
 	}
 	return;
 }
@@ -57,6 +57,7 @@ void pTest::printSystemModules(Process * A){
 	}
 
 }
+
 
 //Test main
 void pTest::Tmain(){

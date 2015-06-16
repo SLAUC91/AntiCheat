@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{C33241B6-4D02-42CE-B1C6-68E41083E9B0}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>AC</RootNamespace>
+    <RootNamespace>AntiCheat</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -142,12 +142,15 @@
   <ItemGroup>
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="Process.cpp" />
+    <ClCompile Include="pScanner.cpp" />
     <ClCompile Include="pTest.cpp" />
     <ClCompile Include="Source.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Engine.h" />
+    <ClInclude Include="ntrdf.h" />
     <ClInclude Include="Process.h" />
+    <ClInclude Include="pScanner.h" />
     <ClInclude Include="pTest.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
